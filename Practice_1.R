@@ -1,5 +1,5 @@
 # ---
-# Title: "Analysis of NYC Yellow Taxi Dataset"
+# Title: "Practice 1. FULL ANALYSIS OF NYC YELLOW TAXI DATASET"
 # Author: "Oleksandr Severhin"
 # Date: "October 2025"
 # Description: This script performs a full analysis of the NYC Yellow Taxi dataset,
