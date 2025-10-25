@@ -32,8 +32,7 @@ tryCatch({
 
 # Take a sample for modeling (e.g., 50,000 rows)
 set.seed(123)
-taxi_sample <- taxi_clean %>%
-  slice_sample(n = 50000)
+taxi_sample <- taxi_clean # %>% slice_sample(n = 50000)
 
 # Convert categorical variables to factors
 taxi_sample <- taxi_sample %>%
