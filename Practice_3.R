@@ -1,3 +1,10 @@
+# ---
+# Title: "Practice 3. Building Advanced Models."
+# Author: "Oleksandr Severhin"
+# Date: October 2025
+#
+# ---
+
 # --- 0. Setup ---
 
 # Install and load packages using pacman
@@ -14,33 +21,14 @@ dir.create("plots", showWarnings = FALSE)
 # --- 1. Data Loading and Cleaning ---
 
 # Load the dataset
-# We use 2024-01 as 2025-01 is not yet available.
 # Make sure the file is in a 'data/' subfolder or change the path.
 tryCatch({
-  taxi_data <- read_parquet("data/yellow_tripdata_2024-01.parquet")
+  taxi_clean <- read_parquet("data/cleaned_yellow_tripdata_2025-01.parquet")
 }, error = function(e) {
-  stop("Error: Could not read 'data/yellow_tripdata_2024-01.parquet'. 
+  stop("Error: Could not read 'data/cleaned_yellow_tripdata_2025-01.parquet'. 
        Please make sure the file exists in the 'data' directory. 
        You can download it from the NYC TLC website.")
 })
-
-# Compute trip_duration in minutes and extract features
-taxi_clean <- taxi_data %>%
-  mutate(
-    trip_duration = as.numeric(tpep_dropoff_datetime - tpep_pickup_datetime) / 60,
-    hour_of_day = lubridate::hour(tpep_pickup_datetime),
-    day_of_week = lubridate::wday(tpep_pickup_datetime, label = TRUE)
-  ) %>%
-  # Filter out illogical trips
-  filter(
-    trip_distance > 0,
-    total_amount > 2.5, # Base fare
-    total_amount < 500,
-    trip_duration > 1,
-    trip_duration < 240, # 4 hours
-    passenger_count > 0,
-    RatecodeID %in% c(1, 2) # Standard rate, JFK
-  )
 
 # Take a sample for modeling (e.g., 50,000 rows)
 set.seed(123)
