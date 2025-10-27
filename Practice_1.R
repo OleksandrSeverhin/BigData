@@ -69,10 +69,14 @@ taxi_data_clean <- taxi_data_raw %>%
     trip_distance,
     passenger_count,
     payment_method,
+    payment_type,
     pickup_hour,
     day_of_week,
     trip_duration_mins,
-    fare_amount # Keep fare_amount for correlation analysis
+    tolls_amount,
+    VendorID,
+    fare_amount,
+    tip_amount
   )
 
 cat("Data cleaning complete. Final dataset has", nrow(taxi_data_clean), "rows.\n")
