@@ -1,6 +1,6 @@
 # ---
 # Title: "Practice 3. Building Advanced Models."
-# Author: "Oleksandr Severhin"
+# Author: Oleksandr Severhin
 # Date: October 2025
 #
 # Desc: This script builds on initial models by applying advanced

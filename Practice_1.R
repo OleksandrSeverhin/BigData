@@ -1,7 +1,7 @@
 # ---
 # Title: "Practice 1. FULL ANALYSIS OF NYC YELLOW TAXI DATASET"
-# Author: "Oleksandr Severhin"
-# Date: "October 2025"
+# Author: Oleksandr Severhin
+# Date: October 2025
 # Description: This script performs a full analysis of the NYC Yellow Taxi dataset,
 #              including data cleaning, EDA, modeling, and diagnostics, as outlined
 #              in the Big Data Practice 1 report.

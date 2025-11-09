@@ -1,6 +1,6 @@
 # ---
 # Title: "Practice 4: Full Model Refinement (Full Dataset)"
-# Author: "Analysis based on Session 4"
+# Author: Oleksandr Severhin
 # Date: October 31, 2025
 #
 # Desc: This script runs the advanced model refinement on the

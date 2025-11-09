@@ -1,7 +1,7 @@
 # ---
 # Title: "Pracice 2. ADVANCED MULTIPLE LINEAR REGRESSION"
-# Author: "Oleksandr Severhin"
-# Date: "October 2025"
+# Author: Oleksandr Severhin
+# Date: October 2025
 # Description: This script focuses on model diagnostics, 
 #              evaluation, and improvement techniques.
 # ---
