@@ -57,11 +57,6 @@ if (file.exists(file_path)) {
 #    Why: Ensures predictions are always positive. Converts additive effects 
 #    into multiplicative effects (percentages), which makes sense for pricing.
 
-# 
-
-[Image of Gamma distribution shapes]
-
-
 ## 3. MODEL FITTING
 
 # A. Baseline OLS (Gaussian Family, Identity Link)
