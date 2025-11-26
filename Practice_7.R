@@ -9,138 +9,151 @@
 #       and interprets the multiplicative coefficients.
 # ---
 
-## 0. SETUP
+# 1. ENVIRONMENT SETUP & CONFIGURATION
+# Dependency Management
 if (!require("pacman")) install.packages("pacman")
-
 pacman::p_load(
-  arrow,       # Reading parquet
-  dplyr,       # Data manipulation
-  ggplot2,     # Plotting
-  broom,       # Tidy output
-  scales,      # Formatting
-  performance, # Model metrics (Pseudo-R2)
-  patchwork    # Plot combination
+  arrow,      # I/O
+  tidyverse,  # Data Manipulation & Plotting
+  broom,      # Tidy model summaries
+  caret,      # Splitting & Confusion Matrices
+  Metrics,    # RMSE/MAE
+  pROC,       # ROC/AUC
+  pscl        # Pseudo-R2
 )
 
-# Create directories
-if (!dir.exists("data")) dir.create("data")
-if (!dir.exists("plots")) dir.create("plots")
+# Configuration
+CONFIG <- list(
+  input_path = "data/cleaned_yellow_tripdata_2025-01.parquet", # ENSURE THIS PATH IS CORRECT
+  plot_dir   = "plots",
+  seed       = 123,
+  split_p    = 0.8
+)
 
-set.seed(123)
+# Create Output Directory
+if (!dir.exists(CONFIG$plot_dir)) dir.create(CONFIG$plot_dir)
 
-## 1. LOAD AND PREPARE DATA
-file_path <- "data/cleaned_yellow_tripdata_2025-01.parquet"
+# Set global ggplot theme
+theme_set(theme_bw() + theme(panel.grid.minor = element_blank()))
 
-if (file.exists(file_path)) {
-  taxi_data <- read_parquet(file_path)
-  
-  # GLM Requirement: Gamma requires strictly positive response values (y > 0).
-  # We also remove 0 distance trips.
-  taxi_data_clean <- taxi_data %>%
-    filter(fare_amount > 0, trip_distance > 0)
-  
-  # Sample for efficiency (GLM convergence can be slow on millions of rows)
-  taxi_sample <- taxi_data_clean %>%
-    sample_n(min(nrow(.), 100000))
-  
-  cat(sprintf("Modeling with %d rows (Filtered for positive fares).\n", nrow(taxi_sample)))
-  
-} else {
-  stop("Dataset not found.")
+# 2. DATA INGESTION & TRANSFORMATION
+# Check if file exists before trying to read
+if (!file.exists(CONFIG$input_path)) {
+  stop(paste("File not found at:", normalizePath(CONFIG$input_path, mustWork = FALSE), 
+             "\nPlease check your working directory or move the file to the 'data' folder."))
 }
 
-## 2. MODEL JUSTIFICATION
-# 1. Family: Gamma. 
-#    Why: Fare data is continuous, strictly positive, and right-skewed.
-#    Variance typically increases with the mean (heteroscedasticity), which Gamma handles.
-# 2. Link: Log.
-#    Why: Ensures predictions are always positive. Converts additive effects 
-#    into multiplicative effects (percentages), which makes sense for pricing.
+# Load Data
+raw_data <- read_parquet(CONFIG$input_path)
 
-## 3. MODEL FITTING
-
-# A. Baseline OLS (Gaussian Family, Identity Link)
-# We use glm() syntax here to make AIC/Deviance directly comparable
-ols_model <- glm(fare_amount ~ trip_distance + passenger_count,
-                 family = gaussian(link = "identity"),
-                 data = taxi_sample)
-
-# B. Gamma GLM (Gamma Family, Log Link)
-glm_gamma <- glm(fare_amount ~ trip_distance + passenger_count,
-                 family = Gamma(link = "log"),
-                 data = taxi_sample)
-
-## 4. MODEL COMPARISON
-
-# A. Metrics (AIC, Deviance, RMSE)
-# Calculate RMSE manually on the training sample
-preds_ols <- predict(ols_model, type = "response")
-preds_glm <- predict(glm_gamma, type = "response")
-
-rmse_ols <- sqrt(mean((taxi_sample$fare_amount - preds_ols)^2))
-rmse_glm <- sqrt(mean((taxi_sample$fare_amount - preds_glm)^2))
-
-# Compile stats
-comparison_df <- data.frame(
-  Model = c("OLS (Gaussian)", "GLM (Gamma)"),
-  AIC = c(AIC(ols_model), AIC(glm_gamma)),
-  Deviance = c(deviance(ols_model), deviance(glm_gamma)),
-  RMSE = c(rmse_ols, rmse_glm),
-  Pseudo_R2 = c(r2_nagelkerke(ols_model), r2_nagelkerke(glm_gamma))
-)
-
-cat("\n--- Model Performance Comparison ---\n")
-print(comparison_df)
-
-# B. Residual Diagnostics
-# We compare how residuals behave. OLS usually fails here (fanning pattern).
-plot_data <- data.frame(
-  Fitted_OLS = fitted(ols_model),
-  Resid_OLS = residuals(ols_model, type = "deviance"),
-  Fitted_GLM = fitted(glm_gamma, type = "response"),
-  Resid_GLM = residuals(glm_gamma, type = "deviance")
-)
-
-# Plot 1: OLS Residuals
-p1 <- ggplot(plot_data, aes(x = Fitted_OLS, y = Resid_OLS)) +
-  geom_point(alpha = 0.1) +
-  geom_hline(yintercept = 0, col = "red", linetype = "dashed") +
-  labs(title = "OLS Residuals", subtitle = "Note: Heteroscedasticity (fanning)", 
-       x = "Fitted Values", y = "Deviance Residuals") +
-  theme_minimal()
-
-# Plot 2: Gamma Residuals
-p2 <- ggplot(plot_data, aes(x = Fitted_GLM, y = Resid_GLM)) +
-  geom_point(alpha = 0.1) +
-  geom_hline(yintercept = 0, col = "red", linetype = "dashed") +
-  labs(title = "Gamma GLM Residuals", subtitle = "Better variance stability", 
-       x = "Fitted Values", y = "Deviance Residuals") +
-  theme_minimal()
-
-# Combine and Save
-residual_plot <- p1 / p2
-ggsave("plots/07_glm_residual_comparison.png", residual_plot, width = 8, height = 8)
-
-
-## 5. COEFFICIENT INTERPRETATION
-# Since we used link="log", coefficients are on the log scale.
-# We must exponentiate them to interpret as Multiplicative Effects.
-
-raw_coefs <- tidy(glm_gamma)
-
-interpretation_df <- raw_coefs %>%
+# Feature Engineering
+# We create a specific dataframe for GLM analysis
+df_glm <- raw_data %>%
   mutate(
-    Multiplicative_Effect = exp(estimate),
-    Percent_Change = (exp(estimate) - 1) * 100
-  ) %>%
-  select(term, estimate, Multiplicative_Effect, Percent_Change, p.value)
+    # Target 1: Binary classification for Tipping (1 = Tipped, 0 = No Tip)
+    is_tipper = if_else(tip_amount > 0, 1, 0),
+    
+    # Target 2: Continuous Cost
+    total_cost = total_amount,
+    
+    # Log-transformed predictors
+    ln_dist  = log(trip_distance),
+    ln_fare  = log(fare_amount),
+    ln_tolls = log(tolls_amount + 1),
+    
+    # Factor conversion
+    across(c(payment_type, day_of_week, VendorID), as.factor)
+  )
 
-cat("\n--- GLM Coefficient Interpretation (Log Link) ---\n")
-print(interpretation_df)
+# Split Data (Stratified Sampling)
+set.seed(CONFIG$seed)
+idx_train <- createDataPartition(df_glm$total_cost, p = CONFIG$split_p, list = FALSE)
+train_set <- df_glm[idx_train, ]
+test_set  <- df_glm[-idx_train, ]
 
-cat("\n--- INTERPRETATION GUIDE ---\n")
-cat("1. AIC/Deviance: Lower is better. Gamma should be significantly lower.\n")
-cat("2. Residuals: Gamma residuals should look like a shapeless cloud. OLS usually fans out.\n")
-cat("3. Coefficients (Multiplicative):\n")
-cat("   - If 'trip_distance' effect is 1.25, it means a 1-unit increase in distance\n")
-cat("     multiplies the fare by 1.25 (a 25% increase), holding other vars constant.\n")
+# 3. MODEL A: PREDICTING COST (GAMMA GLM vs OLS)
+# --- 3.1 Model Definitions ---
+f_cost <- as.formula(total_cost ~ ln_dist + ln_fare + ln_tolls + 
+                       passenger_count + pickup_hour + day_of_week + VendorID)
+
+# 1. Baseline: Log-Log OLS (Gaussian)
+fit_ols <- lm(log(total_cost) ~ ln_dist + ln_fare + ln_tolls + 
+                passenger_count + pickup_hour + day_of_week + VendorID, 
+              data = train_set) # FIXED: changed train_data to train_set
+
+# 2. GLM: Gamma with Log Link
+fit_gamma <- glm(f_cost, family = Gamma(link = "log"), data = train_set) # FIXED: changed train_data to train_set
+
+# --- 3.2 Performance Comparison ---
+pred_ols_raw   <- exp(predict(fit_ols, newdata = test_set))
+pred_gamma_raw <- predict(fit_gamma, newdata = test_set, type = "response")
+
+# Comparison Table
+perf_compare <- tibble(
+  Model_Type = c("OLS (Log-Transformed)", "GLM (Gamma-Log)"),
+  Distribution = c("Gaussian (Assumed)", "Gamma"),
+  Link_Function = c("Identity (on log y)", "Log"),
+  RMSE_Test = c(rmse(test_set$total_cost, pred_ols_raw), 
+                rmse(test_set$total_cost, pred_gamma_raw)),
+  MAE_Test  = c(mae(test_set$total_cost, pred_ols_raw), 
+                mae(test_set$total_cost, pred_gamma_raw)),
+  AIC_Score = c(AIC(fit_ols), AIC(fit_gamma)) 
+)
+
+print("--- Model A: Performance Comparison ---")
+print(kable(perf_compare, digits = 3))
+
+# --- 3.3 Visual Diagnostics ---
+df_viz_gamma <- tibble(
+  Observed = train_set$total_cost, # FIXED: changed train_data to train_set
+  Fitted = fitted(fit_gamma),
+  Resid_Pearson = residuals(fit_gamma, type = "pearson")
+) %>% sample_n(5000)
+
+p_gamma <- ggplot(df_viz_gamma, aes(x = Fitted, y = Resid_Pearson)) +
+  geom_point(alpha = 0.2, color = "#2c3e50") +
+  geom_hline(yintercept = 0, color = "#e74c3c", linetype = "dashed") +
+  labs(title = "Gamma GLM Diagnostics",
+       subtitle = "Pearson Residuals vs Fitted Values (Homoscedasticity Check)",
+       x = "Predicted Cost ($)", y = "Pearson Residuals")
+ggsave(file.path(CONFIG$plot_dir, "01_Gamma_Residuals.png"), p_gamma, width=7, height=5)
+
+# 4. MODEL B: PREDICTING TIPPING (BINOMIAL GLM)
+# Subset for Credit Card only
+train_cc <- train_set %>% filter(payment_type == "1")
+test_cc  <- test_set  %>% filter(payment_type == "1")
+
+# --- 4.1 Model Fitting ---
+# Fit Logistic Regression
+fit_logit <- glm(is_tipper ~ trip_distance + fare_amount + tolls_amount + 
+                   pickup_hour + day_of_week,
+                 family = binomial(link = "logit"),
+                 data = train_cc)
+
+# --- 4.2 Interpretation of Coefficients ---
+# Extract Odds Ratios
+coef_summary <- tidy(fit_logit, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, p.value, conf.low, conf.high) %>%
+  filter(p.value < 0.05) %>%
+  arrange(desc(estimate))
+
+print("--- Model B: Interpretation (Significant Odds Ratios) ---")
+print(kable(head(coef_summary, 10), digits = 4, 
+            caption = "Top Factors Influencing Likelihood to Tip"))
+
+# --- 4.3 Evaluation (ROC & Pseudo-R2) ---
+# Predictions
+probs_test <- predict(fit_logit, newdata = test_cc, type = "response")
+roc_obj <- roc(test_cc$is_tipper, probs_test)
+
+# Pseudo R-Squared
+r2_pseudo <- pR2(fit_logit)["McFadden"]
+
+print(paste0("Binomial GLM - AUC Score: ", round(auc(roc_obj), 4)))
+print(paste0("Binomial GLM - McFadden R2: ", round(r2_pseudo, 4)))
+
+p_roc <- ggroc(roc_obj, colour = "steelblue", size = 1) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed", color = "grey") +
+  labs(title = paste0("ROC Curve: Tipping Prediction (AUC = ", round(auc(roc_obj), 2), ")"),
+       subtitle = "Binomial GLM Performance on Test Data")
+ggsave(file.path(CONFIG$plot_dir, "02_Binomial_ROC.png"), p_roc, width=7, height=5)
